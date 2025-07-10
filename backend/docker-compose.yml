@@ -1,0 +1,74 @@
+version: "3.8"
+
+services:
+  lokichat-db:
+    image: postgres
+    container_name: lokichat_db
+    restart: always
+    environment:
+      - POSTGRES_USER={{DB_USER}}
+      - POSTGRES_PASSWORD={{DB_PASSWORD}}
+      - POSTGRES_DB=lokichat
+    volumes:
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5400:5432"
+    networks:
+      - app-network
+
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U loki -d lokichat" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: lokichat_ollama
+    restart: always
+    ports:
+      - "11435:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - app-network
+
+  app:
+    container_name: lokichat_app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '8081:8080'
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://lokichat-db:5432/lokichat
+      - SPRING_DATASOURCE_USERNAME={{DB_USER}}
+      - SPRING_DATASOURCE_PASSWORD={{DB_PASSWORD}}
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - OLLAMA_BASE_URL=http://ollama:11434
+    volumes:
+      - app_logs:/app/logs
+      - app_config:/app/config
+    networks:
+        - app-network
+
+    depends_on:
+      lokichat-db:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+
+volumes:
+  postgres_data:
+    driver: local
+  ollama_data:
+    driver: local
+  app_logs:
+    driver: local
+  app_config:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
